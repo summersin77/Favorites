@@ -23,8 +23,31 @@ function makeItem(link, category) {
   copy.className = 'copy';
   copy.textContent = '复制';
   copy.onclick = async () => {
-    await navigator.clipboard.writeText(link.url);
-    copy.textContent = '已复制';
+    let ok = true;
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.writeText) {
+        throw new Error('clipboard api unavailable');
+      }
+      await navigator.clipboard.writeText(link.url);
+    } catch (err) {
+      // 非 https 环境或用户拒绝权限时，降级为「选中文本 + execCommand」
+      ok = false;
+      const ta = document.createElement('textarea');
+      ta.value = link.url;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '-1000px';
+      ta.style.opacity = '0';
+      document.body.append(ta);
+      ta.select();
+      try {
+        ok = document.execCommand('copy');
+      } catch (e2) {
+        ok = false;
+      }
+      ta.remove();
+    }
+    copy.textContent = ok ? '已复制' : '复制失败';
     setTimeout(() => (copy.textContent = '复制'), 1200);
   };
 
@@ -38,7 +61,11 @@ function render() {
   groups.forEach((group) => {
     const box = document.createElement('details');
     const title = document.createElement('summary');
-    title.innerHTML = `<span>${group.category}</span><span>${group.links.length}</span>`;
+    const nameEl = document.createElement('span');
+    nameEl.textContent = group.category;
+    const numEl = document.createElement('span');
+    numEl.textContent = group.links.length;
+    title.append(nameEl, numEl);
     box.append(title, ...group.links.map((link) => makeItem(link, group.category)));
     content.append(box);
   });
@@ -68,9 +95,11 @@ function filter() {
 async function init() {
   try {
     const res = await fetch('data.json');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     groups = await res.json();
     render();
-  } catch {
+  } catch (err) {
+    console.error('加载 data.json 失败：', err);
     content.innerHTML = '<p>data.json 加载失败，请确认文件存在并通过网页服务器打开。</p>';
   }
 
